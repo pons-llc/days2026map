@@ -401,14 +401,50 @@
     });
   }
 
-  function quickToggle(id) {
-    toggleSel(id);
+  async function quickToggle(id) {
+    await toggleSessionWithCheck(id);
+    render();
+  }
+
+  // 追加時に時間が重なる予定があれば、どうするか選ぶシートを出す
+  async function toggleSessionWithCheck(id) {
+    if (isSel(id)) { toggleSel(id); snack('マイ予定から外しました'); return; }
     const s = sessionsById.get(id);
-    if (isSel(id)) {
-      const c = conflictsOf(s);
-      snack(c.length ? `追加しました（${c.length}件と時間が重なっています）` : 'マイ予定に追加しました');
-    } else snack('マイ予定から外しました');
-    renderTimetable();
+    const conflicts = myEvents(s.date).filter(o => overlap(o, s));
+    if (!conflicts.length) { toggleSel(id); snack('マイ予定に追加しました'); return; }
+    const choice = await chooseConflict(s, conflicts);
+    if (choice === 'replace') {
+      const drop = conflicts.filter(c => c.kind === 'session').map(c => c.id);
+      state.selected = state.selected.filter(x => !drop.includes(x));
+      toggleSel(id);
+      snack(`入れ替えました（${drop.length}件を外しました）`);
+    } else if (choice === 'both') {
+      toggleSel(id);
+      snack(`追加しました（${conflicts.length}件と時間が重なっています）`);
+    }
+  }
+
+  function chooseConflict(s, conflicts) {
+    const sessions = conflicts.filter(c => c.kind === 'session');
+    const customs = conflicts.filter(c => c.kind === 'custom');
+    return new Promise(resolve => {
+      let result = null;
+      openSheet(`${sheetHead('時間が重なる予定があります')}
+        <p style="margin-top:0">追加しようとしているセッション</p>
+        <div class="card" style="border-color:var(--blue-900);background:var(--blue-50)">
+          <div class="card-meta">${s.start}–${s.end}</div><div class="card-title">${esc(s.title)}</div>
+        </div>
+        <p>マイ予定で時間が重なっている予定</p>
+        ${conflicts.map(c => `<div class="card"><div class="card-meta">${c.start}–${c.end}${c.kind === 'custom' ? '・自分の予定' : ''}</div><div class="card-title">${esc(c.title || '(無題)')}</div></div>`).join('')}
+        ${customs.length ? `<p class="hint">「入れ替える」を選んでも、自分で登録した予定は残ります。</p>` : ''}
+        <div style="display:grid;gap:8px;margin-top:16px">
+          ${sessions.length ? `<button type="button" class="btn primary block" data-choice="replace">このセッションに入れ替える</button>` : ''}
+          <button type="button" class="btn block" data-choice="both">重なったまま両方残す</button>
+          <button type="button" class="btn text block" data-close>キャンセル</button>
+        </div>`,
+      el => $$('[data-choice]', el).forEach(b => b.onclick = () => { result = b.dataset.choice; closeSheet(); }),
+      () => resolve(result));
+    });
   }
 
   function ratingHtml(r) {
@@ -439,7 +475,13 @@
         <label class="field"><span class="sr">感想</span><textarea id="sNote" placeholder="気づき・学び・次のアクションなど">${esc(note.text)}</textarea></label>
         <div class="saved" id="sSaved"></div>`,
       el => {
-        $('#sSel', el).onclick = () => { toggleSel(id); draw(); render(); };
+        $('#sSel', el).onclick = async () => {
+          const conflicted = !isSel(id) && myEvents(s.date).some(o => overlap(o, s));
+          await toggleSessionWithCheck(id);
+          render();
+          // 選択シートを挟んだ場合はシートが閉じているので開き直す
+          if (conflicted) openSession(id); else draw();
+        };
         const saveNote = (patch) => {
           const cur = { ...(state.sNotes[id] || { text: '', rating: 0 }), ...patch, updatedAt: now() };
           if (!cur.text && !cur.rating) delete state.sNotes[id]; else state.sNotes[id] = cur;
