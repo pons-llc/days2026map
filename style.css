@@ -70,6 +70,12 @@ a { color: var(--blue-900); }
 }
 [hidden] { display: none !important; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.about-dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: .9375rem; }
+.about-dl dt { font-weight: 700; color: var(--text-sub); }
+.about-dl dd { margin: 0; }
+.terms { font-size: .875rem; }
+.terms h4 { margin: 16px 0 2px; font-size: .875rem; }
+.terms p { margin: 0; }
 .disclaimer { font-size: .6875rem; color: var(--text-sub); text-align: center; padding: 16px 0 0; line-height: 1.5; }
 
 .ic { width: 24px; height: 24px; fill: currentColor; flex: none; }
@@ -316,6 +322,19 @@ button.card:active, .card.tappable:active { background: var(--gray-50); }
 .pin-icon.fav { background: #e5a800; }
 .pin-icon.visited { background: var(--green-700); }
 .pin-icon.both { background: linear-gradient(135deg, #e5a800 50%, var(--green-700) 50%); }
+.booth-label-wrap { width: 0 !important; height: 0 !important; }
+.booth-label {
+  display: none; position: absolute; transform: translate(-50%, -50%);
+  white-space: nowrap; font-size: 10px; font-weight: 700; line-height: 1.2; letter-spacing: 0;
+  padding: 1px 4px; border-radius: 4px; color: var(--gray-900);
+  background: rgba(255, 255, 255, .88); border: 1px solid currentColor;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .2);
+}
+.booth-label.S { color: #b0187f; }
+.booth-label.F { color: #5a1fd1; }
+.booth-label.T { color: #c41a1a; }
+.show-labels .booth-label { display: block; }
+.labels-lg .booth-label { font-size: 12px; padding: 2px 6px; }
 .map-label {
   background: var(--blue-900); color: #fff; border: 0; border-radius: 6px; font-weight: 700; padding: 4px 8px;
   box-shadow: var(--elev-1);

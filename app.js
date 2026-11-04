@@ -584,6 +584,16 @@
       c.on('click', () => openBooth(b.code));
       hitByCode.set(b.code, c);
     }
+    // 出展者名ラベル（ズームしたときだけ表示）
+    map.createPane('labels').style.zIndex = 450;
+    for (const b of booths) {
+      const html = `<span class="booth-label ${b.tier}">${esc(shortName(b.name))}</span>`;
+      L.marker(ll(b.x, b.y + (b.tier === 'S' ? 30 : 0)), { pane: 'labels', icon: L.divIcon({ html, className: 'booth-label-wrap', iconSize: null }), keyboard: false })
+        .on('click', () => openBooth(b.code)).addTo(map);
+    }
+    map.on('zoomend', updateLabelVisibility);
+    updateLabelVisibility();
+
     poiLayer = L.layerGroup().addTo(map);
     for (const p of pois) {
       const m = L.circle(ll(p.x, p.y), { radius: 22, stroke: false, fillOpacity: 0, className: 'booth-hit' }).addTo(poiLayer);
@@ -596,6 +606,22 @@
     setTimeout(() => map.invalidateSize(), 0);
   }
   function fitHall() { map.fitBounds([ll(420, 940), ll(1660, 60)]); }
+
+  // 法人格を除いた社名の先頭5文字（共同出展は1社目）
+  function shortName(name) {
+    const first = name.normalize('NFKC').split(/\s*[/／]\s*/)[0];
+    const core = first.replace(/(株式会社|合同会社|有限会社)/g, '').trim();
+    return Array.from(core || first).slice(0, 5).join('').trim();
+  }
+
+  const LABEL_MIN_ZOOM = 0.5;
+  function updateLabelVisibility() {
+    if (!map) return;
+    const z = map.getZoom();
+    const el = map.getContainer();
+    el.classList.toggle('show-labels', pref.labels !== false && z >= LABEL_MIN_ZOOM);
+    el.classList.toggle('labels-lg', z >= 1.5);
+  }
 
   function refreshMapMarkers() {
     renderMapChips();
@@ -619,8 +645,14 @@
     const visN = Object.values(state.booths).filter(b => b.visited).length;
     $('#mapChips').innerHTML = `
       <button type="button" class="chip" data-pin="fav" aria-pressed="${pref.mapPins.fav}">★ お気に入り ${favN}</button>
-      <button type="button" class="chip" data-pin="visited" aria-pressed="${pref.mapPins.visited}">訪問済み ${visN}/${booths.length}</button>`;
+      <button type="button" class="chip" data-pin="visited" aria-pressed="${pref.mapPins.visited}">訪問済み ${visN}/${booths.length}</button>
+      <button type="button" class="chip" data-labels aria-pressed="${pref.labels !== false}">企業名</button>`;
     $$('#mapChips [data-pin]').forEach(b => b.onclick = () => { pref.mapPins[b.dataset.pin] = !pref.mapPins[b.dataset.pin]; savePref(); refreshMapMarkers(); });
+    $('#mapChips [data-labels]').onclick = () => {
+      pref.labels = pref.labels === false;
+      savePref(); renderMapChips(); updateLabelVisibility();
+      if (pref.labels && map && map.getZoom() < LABEL_MIN_ZOOM) snack('拡大すると企業名が表示されます');
+    };
   }
 
   function focusPlace(place) {
@@ -925,12 +957,7 @@
       <h3 class="section-h">データ管理</h3>
       <div class="btn-row"><button type="button" class="btn danger" id="bkClear">${icon('delete')}すべてのデータを削除</button></div>
 
-      <h3 class="section-h">このアプリについて</h3>
-      <div class="info-box">
-        本アプリは <a href="https://pons-llc.com" target="_blank" rel="noopener">合同会社Pons</a> が運営する<strong>非公式</strong>の観覧補助アプリです。Cybozu Days 2026 の主催者・公式サイトとは関係ありません。<br>
-        掲載しているセッション・ブース情報は公開資料をもとに作成したもので、変更や誤りが含まれる場合があります。<strong>正式な情報は必ず<a href="${esc(D.sourceUrl)}" target="_blank" rel="noopener">公式サイト</a>をご確認ください。</strong>
-      </div>
-      <p class="hint">入力したデータは運営者のサーバーには送信されず、この端末内にのみ保存されます。ホーム画面に追加すると、オフラインでも利用できます。<br>運営：合同会社Pons（<a href="https://pons-llc.com" target="_blank" rel="noopener">pons-llc.com</a>）</p>`;
+      <p class="hint">運営者・利用規約は画面右上の「？」からご確認いただけます。</p>`;
 
     $('#bkDl').onclick = () => {
       const blob = new Blob([JSON.stringify(backupPayload(), null, 2)], { type: 'application/json' });
@@ -968,6 +995,57 @@
       }
     };
   }
+  /* =========================================================
+     このアプリについて（運営者・利用規約）
+     ========================================================= */
+  const OPERATOR = { name: '合同会社Pons', url: 'https://pons-llc.com' };
+  const TERMS_UPDATED = '2026年11月4日';
+
+  function openAbout() {
+    const link = (href, text) => `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(text)}</a>`;
+    openSheet(`${sheetHead('このアプリについて')}
+      <div class="info-box">
+        本アプリは${link(OPERATOR.url, OPERATOR.name)}が運営する<strong>非公式</strong>の観覧補助アプリです。Cybozu Days 2026 の主催者および公式サイトとは関係ありません。<br>
+        <strong>正式な情報は必ず${link(D.sourceUrl, '公式サイト')}をご確認ください。</strong>
+      </div>
+
+      <h3 class="section-h">運営者</h3>
+      <dl class="about-dl">
+        <dt>名称</dt><dd>${esc(OPERATOR.name)}</dd>
+        <dt>Webサイト</dt><dd>${link(OPERATOR.url, OPERATOR.url.replace('https://', ''))}</dd>
+        <dt>お問い合わせ</dt><dd>上記Webサイトよりご連絡ください</dd>
+      </dl>
+
+      <h3 class="section-h">利用規約</h3>
+      <div class="terms">
+        <h4>第1条（適用）</h4>
+        <p>本規約は、${esc(OPERATOR.name)}（以下「運営者」）が提供する本アプリの利用に関する条件を定めるものです。利用者は、本アプリを利用した時点で本規約に同意したものとみなします。</p>
+        <h4>第2条（非公式アプリであること）</h4>
+        <p>本アプリは運営者が独自に作成した非公式アプリであり、Cybozu Days 2026 の主催者、サイボウズ株式会社、出展各社とは一切関係ありません。本アプリに関するお問い合わせを主催者・出展者へ行わないでください。</p>
+        <h4>第3条（掲載情報）</h4>
+        <p>セッション・ブース・会場マップ等の情報は、公開されている資料をもとに作成したものです。内容の正確性・最新性・完全性は保証しません。日時・会場・内容の変更等、正式な情報は必ず公式サイトでご確認ください。</p>
+        <h4>第4条（データの保存）</h4>
+        <p>利用者が入力した予定・メモ・連絡先等のデータは、利用者の端末内（ブラウザのローカルストレージ）にのみ保存され、運営者のサーバーへ送信されることはありません。ブラウザのデータ削除や端末の故障等によりデータが失われる場合があるため、利用者は自らの責任でバックアップを行うものとします。</p>
+        <h4>第5条（個人情報の取り扱い）</h4>
+        <p>運営者は本アプリを通じて利用者の個人情報を取得しません。利用者が本アプリに他者の連絡先等を登録する場合は、ご自身の責任で適切に管理してください。なお、本アプリの表示にあたり、フォント配信（Google Fonts）およびホスティングサービスとの通信が発生します。</p>
+        <h4>第6条（通知機能）</h4>
+        <p>リマインダー通知は、端末・ブラウザの仕様や設定により届かない、または遅れる場合があります。重要な予定は、カレンダーへの登録等の方法もあわせてご利用ください。</p>
+        <h4>第7条（禁止事項）</h4>
+        <p>利用者は、法令または公序良俗に反する行為、本アプリの運営を妨げる行為、本アプリを公式アプリであると誤認させる行為をしてはなりません。</p>
+        <h4>第8条（免責）</h4>
+        <p>運営者は、本アプリの利用または利用できなかったことにより利用者に生じた損害（セッションへの参加機会の喪失、データの消失等を含みます）について、運営者の故意または重過失による場合を除き、責任を負いません。</p>
+        <h4>第9条（提供の変更・終了）</h4>
+        <p>運営者は、事前の通知なく本アプリの内容を変更し、または提供を終了することができます。</p>
+        <h4>第10条（規約の変更）</h4>
+        <p>運営者は、必要と判断した場合に本規約を変更できます。変更後の規約は本アプリ内に掲載した時点から効力を生じます。</p>
+        <h4>第11条（準拠法）</h4>
+        <p>本規約は日本法に準拠します。</p>
+        <p class="hint">制定日：${TERMS_UPDATED}</p>
+      </div>
+      <p class="disclaimer">© ${new Date().getFullYear()} ${esc(OPERATOR.name)}</p>`);
+  }
+  $('#helpBtn').addEventListener('click', openAbout);
+
   function markBackup() { try { localStorage.setItem('cd26-last-backup', JSON.stringify(now())); } catch { /* noop */ } renderBackup(); }
 
   function importText(text) {
