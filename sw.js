@@ -1,5 +1,5 @@
 /* CD26 観覧アプリ Service Worker（オフライン対応・通知タップ処理） */
-const CACHE = 'cd26-v2';
+const CACHE = 'cd26-v3';
 const ASSETS = [
   './',
   'index.html',

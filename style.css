@@ -385,7 +385,19 @@ button.card:active, .card.tappable:active { background: var(--gray-50); }
 .stat span { font-size: .8125rem; color: var(--text-sub); }
 .progress { height: 8px; border-radius: 4px; background: var(--gray-100); overflow: hidden; margin: 4px 0 16px; }
 .progress i { display: block; height: 100%; background: var(--green-700); }
-.contact-actions { display: flex; gap: 4px; margin-top: 4px; }
+.contact-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.booth-link {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 32px;
+  padding: 4px 10px 4px 4px; border: 1px solid var(--blue-200); border-radius: 16px;
+  background: var(--surface); color: var(--blue-1000); font-size: .8125rem; font-weight: 500; text-align: left;
+}
+.booth-link .booth-code { height: 22px; min-width: 40px; }
+.booth-link:active { background: var(--blue-50); }
+.ic-inline { vertical-align: -3px; margin-right: 2px; }
+.head-save { height: 40px; padding: 0 16px; font-size: .9375rem; margin-top: 2px; }
+.snackbar.has-action { display: flex; align-items: center; gap: 12px; pointer-events: auto; }
+.snackbar:not(.show) { pointer-events: none; }
+.snack-action { margin-left: auto; border: 0; background: none; color: #a8c7ff; font-weight: 700; padding: 4px 8px; flex: none; }
 .contact-actions a { display: inline-flex; align-items: center; gap: 4px; font-size: .8125rem; padding: 6px 10px; border-radius: 16px; background: var(--blue-50); text-decoration: none; color: var(--blue-1000); }
 .mini-stars { color: #e5a800; font-size: .8125rem; letter-spacing: 0; }
 .memo-excerpt { font-size: .875rem; color: var(--text); margin-top: 4px; white-space: pre-line; }

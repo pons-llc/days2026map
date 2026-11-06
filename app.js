@@ -45,7 +45,7 @@
     }
     if (Array.isArray(raw.contacts)) s.contacts = raw.contacts.filter(c => c && c.id).map(c => ({
       id: String(c.id), name: String(c.name || ''), company: String(c.company || ''), title: String(c.title || ''),
-      email: String(c.email || ''), tel: String(c.tel || ''), booth: String(c.booth || ''), memo: String(c.memo || ''),
+      email: String(c.email || ''), tel: String(c.tel || ''), sns: String(c.sns || ''), booth: String(c.booth || ''), memo: String(c.memo || ''),
       createdAt: c.createdAt || null, updatedAt: c.updatedAt || null,
     }));
     s.updatedAt = raw.updatedAt || null;
@@ -88,12 +88,19 @@
 
   /* ---------- snackbar ---------- */
   let snackTimer;
-  function snack(msg) {
+  function snack(msg, action) {
     const el = $('#snackbar');
     el.textContent = msg;
+    if (action) {
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'snack-action'; btn.textContent = action.label;
+      btn.onclick = () => { el.classList.remove('show'); action.onClick(); };
+      el.appendChild(btn);
+    }
+    el.classList.toggle('has-action', !!action);
     el.classList.add('show');
     clearTimeout(snackTimer);
-    snackTimer = setTimeout(() => el.classList.remove('show'), 2800);
+    snackTimer = setTimeout(() => el.classList.remove('show'), action ? 6000 : 2800);
   }
 
   /* ---------- bottom sheet ---------- */
@@ -122,7 +129,12 @@
   }
   window.addEventListener('popstate', () => { if (sheet.open) finishClose(); });
   sheet.addEventListener('cancel', e => { e.preventDefault(); closeSheet(); });
-  sheet.addEventListener('click', e => { if (e.target === sheet) closeSheet(); });
+  // 背景（シートの外側）をタップしたときだけ閉じる。シート内の余白タップで閉じないよう座標で判定
+  sheet.addEventListener('click', e => {
+    if (e.target !== sheet) return;
+    const r = sheet.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) closeSheet();
+  });
   const sheetHead = (title, extra = '') => `<div class="sheet-head"><h2 id="sheetTitle">${title}</h2>${extra}<button type="button" class="icon-btn" data-close aria-label="閉じる">${icon('close')}</button></div>`;
   $('#sheetContent').addEventListener('click', e => { if (e.target.closest('[data-close]')) closeSheet(); });
 
@@ -514,7 +526,7 @@
     const ev = id ? state.custom.find(c => c.id === id) : null;
     const e = ev || { date: pref.day, start: '13:00', end: '13:30', title: '', place: '', memo: '' };
     const placeBooth = findPlace(e.place);
-    openSheet(`${sheetHead(ev ? '予定を編集' : '予定を追加')}
+    openSheet(`${sheetHead(ev ? '予定を編集' : '予定を追加', '<button type="submit" form="cForm" class="btn primary head-save">保存</button>')}
       <form id="cForm">
         <label class="field"><span>タイトル（必須）</span><input name="title" required value="${esc(e.title)}" placeholder="例：ブースセミナー、ランチ、打ち合わせ"></label>
         <label class="field"><span>日付</span><select name="date">${D.days.map(d => `<option value="${d.date}" ${d.date === e.date ? 'selected' : ''}>${d.label} ${d.sub}</option>`).join('')}</select></label>
@@ -750,24 +762,32 @@
     draw();
   }
 
+  const contactsAt = code => state.contacts.filter(c => c.booth === code);
+
   function boothListHtml(filter) {
     const list = booths.filter(b => {
       const st = boothState(b.code);
       if (filter === 'fav') return st.fav;
       if (filter === 'visited') return st.visited;
       if (filter === 'unvisited') return !st.visited;
-      if (filter === 'memo') return st.memo || st.fav || st.visited;
+      if (filter === 'hasMemo') return !!st.memo;
+      if (filter === 'hasContact') return contactsAt(b.code).length > 0;
+      if (filter === 'recorded') return st.memo || st.fav || st.visited || contactsAt(b.code).length;
       return true;
     });
     if (!list.length) return `<div class="empty"><p>該当するブースはありません。</p></div>`;
+    // 「メモあり」はメモを読み流せるよう全文表示、それ以外は1行
+    const memoCls = filter === 'hasMemo' ? 'memo-excerpt' : 'card-meta clamp1';
     let html = '', tier = '';
     for (const b of list) {
       if (b.tier !== tier) { tier = b.tier; html += `<h3 class="section-h">${TIERS[tier]}<span class="count">${list.filter(x => x.tier === tier).length}件</span></h3>`; }
       const st = boothState(b.code);
-      html += `<button type="button" class="card" data-booth="${b.code}"><div class="card-row" style="align-items:center">
+      const people = contactsAt(b.code);
+      html += `<button type="button" class="card" data-booth="${b.code}"><div class="card-row" style="align-items:${filter === 'hasMemo' ? 'flex-start' : 'center'}">
         <span class="booth-code ${b.tier}">${b.code}</span>
         <div class="card-main"><div class="clamp2" style="font-weight:500;line-height:1.5">${esc(b.name)}</div>
-        ${st.memo ? `<div class="card-meta clamp1">${esc(st.memo)}</div>` : ''}</div>
+        ${people.length ? `<div class="card-meta clamp1">${icon('person', 'ic-s ic-inline')}${esc(people.map(contactLabel).join('、'))}</div>` : ''}
+        ${st.memo ? `<div class="${memoCls}">${esc(st.memo)}</div>` : ''}</div>
         ${st.fav ? `<span class="mini-stars" aria-label="お気に入り">★</span>` : ''}
         ${st.visited ? `<span class="tag ok">訪問済</span>` : ''}
       </div></button>`;
@@ -776,7 +796,7 @@
   }
 
   function openBoothList(filter) {
-    const filters = [['all', 'すべて'], ['fav', 'お気に入り'], ['visited', '訪問済み'], ['unvisited', '未訪問']];
+    const filters = [['all', 'すべて'], ['fav', 'お気に入り'], ['hasMemo', 'メモあり'], ['hasContact', '連絡先あり'], ['visited', '訪問済み'], ['unvisited', '未訪問']];
     openSheet(`${sheetHead('ブース一覧')}
       <div class="chips" style="margin:0 -20px;padding-left:20px">${filters.map(([k, l]) => `<button type="button" class="chip" data-f="${k}" aria-pressed="${k === filter}">${l}</button>`).join('')}</div>
       ${boothListHtml(filter)}`, el => {
@@ -825,86 +845,194 @@
       setFab(null);
       const vals = Object.values(state.booths);
       const vis = vals.filter(v => v.visited).length;
+      const withContact = new Set(state.contacts.map(c => c.booth).filter(code => boothsByCode.has(code))).size;
+      const filters = [['recorded', '記録すべて'], ['hasMemo', `メモあり ${vals.filter(v => v.memo).length}`], ['hasContact', `連絡先あり ${withContact}`], ['fav', `お気に入り ${vals.filter(v => v.fav).length}`], ['visited', `訪問済み ${vis}`]];
+      if (!filters.some(([k]) => k === pref.boothFilter)) pref.boothFilter = 'recorded';
+      const hasAny = vals.length || withContact;
       body.innerHTML = `<div class="stat-grid">
           <div class="stat"><b>${vis}<small style="font-size:.875rem;color:var(--text-sub)"> / ${booths.length}</small></b><span>訪問済みブース</span></div>
-          <div class="stat"><b>${vals.filter(v => v.fav).length}</b><span>お気に入り</span></div>
-          <div class="stat"><b>${vals.filter(v => v.memo).length}</b><span>メモあり</span></div>
         </div>
         <div class="progress" aria-hidden="true"><i style="width:${(vis / booths.length) * 100}%"></i></div>
-        ${vals.length ? boothListHtml('memo') : `<div class="empty">${icon('map')}<p>マップでブースをタップして、お気に入り・訪問済み・メモを記録しましょう。</p><button type="button" class="btn primary" id="goMap">マップを開く</button></div>`}`;
+        ${hasAny ? `<div class="chips" style="margin:0 -16px 4px">${filters.map(([k, l]) => `<button type="button" class="chip" data-bf="${k}" aria-pressed="${k === pref.boothFilter}">${l}</button>`).join('')}</div>
+          ${boothListHtml(pref.boothFilter)}`
+        : `<div class="empty">${icon('map')}<p>マップでブースをタップして、お気に入り・訪問済み・メモを記録しましょう。</p><button type="button" class="btn primary" id="goMap">マップを開く</button></div>`}`;
       if ($('#goMap')) $('#goMap').onclick = () => showView('map');
+      $$('[data-bf]', body).forEach(b => b.onclick = () => { pref.boothFilter = b.dataset.bf; savePref(); renderMemo(); });
       $$('[data-booth]', body).forEach(b => b.onclick = () => openBooth(b.dataset.booth));
     } else {
       setFab('連絡先を追加', () => openContactEditor(null));
-      const list = [...state.contacts].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-      body.innerHTML = list.length
-        ? `<p class="hint">${list.length}件の連絡先</p>${list.map(contactCard).join('')}`
-        : `<div class="empty">${icon('person')}<p>名刺交換した方や、ブースで話した担当者の連絡先を登録できます。</p></div>`;
-      bindContactCards(body);
+      if (!state.contacts.length) {
+        body.innerHTML = `<div class="empty">${icon('person')}<p>名刺交換した方、Xで見かけた方、当日会いたい方などを登録できます。</p></div>`;
+        return;
+      }
+      body.innerHTML = `<label class="searchbar" style="margin-bottom:8px">${icon('search')}<input type="search" id="ctSearch" placeholder="名前・会社・メモで検索" value="${esc(pref.ctQ || '')}"></label><div id="ctResults"></div>`;
+      // 入力欄は作り直さない（日本語入力の変換が途切れないように結果だけ更新）
+      $('#ctSearch').oninput = e => { pref.ctQ = e.target.value; renderContactResults(); };
+      renderContactResults();
     }
+  }
+
+  function renderContactResults() {
+    const box = $('#ctResults');
+    if (!box) return;
+    const q = norm(pref.ctQ || '');
+    const list = state.contacts
+      .filter(c => !q || norm(CONTACT_FIELDS.map(k => k === 'booth' ? `${c.booth}${boothsByCode.get(c.booth)?.name || ''}` : c[k]).join(' ')).includes(q))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    box.innerHTML = `<p class="hint">${q ? `${list.length}件 / 全${state.contacts.length}件` : `${list.length}件の連絡先`}</p>${list.map(contactCard).join('')}`;
+    bindContactCards(box);
+  }
+
+  const CONTACT_FIELDS = ['name', 'company', 'title', 'email', 'tel', 'sns', 'booth', 'memo'];
+  const contactLabel = c => c.name || c.company || c.sns || '(名前未入力)';
+
+  // 社名から関連ブースを推測（完全一致 → 部分一致）
+  function guessBooth(company) {
+    const q = norm(company).replace(/(株式会社|合同会社|有限会社)/g, '');
+    if (q.length < 2) return null;
+    const parts = b => norm(b.name).replace(/(株式会社|合同会社|有限会社)/g, '').split(/[/／]/).filter(Boolean);
+    const exact = booths.find(b => norm(b.name) === norm(company))
+      || booths.find(b => parts(b).length === 1 && parts(b)[0] === q);
+    if (exact) return exact;
+    // それ以外は候補が1つに絞れるときだけ採用（共同出展などで複数当たる場合は推測しない）
+    const unique = hits => (hits.length === 1 ? hits[0] : null);
+    const same = booths.filter(b => parts(b).includes(q));
+    if (same.length) return unique(same);
+    return unique(booths.filter(b => parts(b).some(n => n.includes(q) || q.includes(n))));
+  }
+
+  function snsUrl(sns) {
+    const s = sns.trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    const h = s.replace(/^@/, '');
+    return /^[A-Za-z0-9_]{1,15}$/.test(h) ? `https://x.com/${h}` : null;
   }
 
   function contactCard(c) {
     const b = boothsByCode.get(c.booth);
+    const sns = c.sns ? snsUrl(c.sns) : null;
     return `<div class="card tappable" data-contact="${esc(c.id)}" role="button" tabindex="0">
       <div class="card-row"><div class="card-main">
-        <div class="card-title">${esc(c.name || '(名前未入力)')}</div>
-        <div class="card-meta">${esc([c.company, c.title].filter(Boolean).join('・'))}</div>
-        ${b ? `<div><span class="booth-code ${b.tier}" style="height:20px;min-width:40px">${b.code}</span></div>` : ''}
+        <div class="card-title">${esc(contactLabel(c))}</div>
+        <div class="card-meta">${esc([c.name ? c.company : '', c.title].filter(Boolean).join('・'))}</div>
         ${c.memo ? `<div class="memo-excerpt clamp2">${esc(c.memo)}</div>` : ''}
         <div class="contact-actions">
+          ${b ? `<button type="button" class="booth-link" data-goto-booth="${b.code}"><span class="booth-code ${b.tier}">${b.code}</span>${esc(b.name)}<span aria-hidden="true">›</span></button>` : ''}
           ${c.tel ? `<a href="tel:${esc(c.tel.replace(/[^\d+]/g, ''))}">${icon('phone', 'ic-s')}電話</a>` : ''}
           ${c.email ? `<a href="mailto:${esc(c.email)}">${icon('mail', 'ic-s')}メール</a>` : ''}
+          ${sns ? `<a href="${esc(sns)}" target="_blank" rel="noopener">${icon('open', 'ic-s')}${esc(c.sns.startsWith('http') ? 'SNS' : c.sns)}</a>` : ''}
         </div>
       </div>${icon('edit', 'ic-s')}</div></div>`;
   }
   function bindContactCards(root) {
     $$('[data-contact]', root).forEach(card => {
-      card.onclick = e => { if (e.target.closest('a')) return; openContactEditor(card.dataset.contact); };
+      card.onclick = e => {
+        if (e.target.closest('a')) return;
+        const go = e.target.closest('[data-goto-booth]');
+        if (go) { e.stopPropagation(); openBooth(go.dataset.gotoBooth); return; }
+        openContactEditor(card.dataset.contact);
+      };
       card.onkeydown = e => { if (e.key === 'Enter' && e.target === card) openContactEditor(card.dataset.contact); };
     });
   }
 
   function openContactEditor(id, preset = {}) {
     const c0 = id ? state.contacts.find(c => c.id === id) : null;
-    const c = c0 || { name: '', company: '', title: '', email: '', tel: '', booth: '', memo: '', ...preset };
-    openSheet(`${sheetHead(c0 ? '連絡先を編集' : '連絡先を追加')}
-      <form id="ctForm" autocomplete="off">
+    const c = c0 || { name: '', company: '', title: '', email: '', tel: '', sns: '', booth: '', memo: '', ...preset };
+    const initial = JSON.stringify(CONTACT_FIELDS.map(k => String(c[k] || '').trim()));
+    let target = c0;            // 保存先（新規は初回保存時に作成）
+    let before = c0 ? { ...c0 } : null;
+    let closed = false;         // 閉じた・削除した後は保存しない
+    let lastSaved = initial;
+    let f;
+
+    const values = () => CONTACT_FIELDS.map(k => String(f.elements[k].value || '').trim());
+    const read = () => {
+      const v = {};
+      for (const k of CONTACT_FIELDS) v[k] = String(f.elements[k].value || '').trim();
+      if (!v.booth && v.company) { const g = guessBooth(v.company); if (g) v.booth = g.code; }
+      return v;
+    };
+    // 保存。閉じる操作（×・背景・戻る）やアプリの切り替え時にも呼ばれるので、入力があれば必ず残す
+    // mode: 'manual'（保存ボタン） / 'auto'（閉じたとき） / 'silent'（画面が隠れたとき）
+    const commit = (mode) => {
+      if (closed || !f) return true;
+      const v = read();
+      if (!CONTACT_FIELDS.some(k => k !== 'booth' && v[k])) {
+        if (mode === 'manual') $('#ctErr').textContent = 'いずれかの項目を入力してください。';
+        return mode !== 'manual';
+      }
+      const snapshot = JSON.stringify(values());
+      if (mode !== 'manual' && snapshot === lastSaved) return true;
+      lastSaved = snapshot;
+      if (target) Object.assign(target, v, { updatedAt: now() });
+      else { target = { id: 'p-' + uid(), ...v, createdAt: now(), updatedAt: now() }; state.contacts.push(target); }
+      save();
+      if (mode === 'silent') return true;
+      const item = target, prev = before;
+      const undo = prev
+        ? () => { Object.assign(item, prev); save(); render(); snack('変更を取り消しました'); }
+        : () => { state.contacts = state.contacts.filter(x => x.id !== item.id); save(); render(); snack('追加を取り消しました'); };
+      snack(mode === 'auto' ? '連絡先を自動保存しました' : '連絡先を保存しました', { label: '取り消す', onClick: undo });
+      return true;
+    };
+    const onHidden = () => { if (document.hidden) commit('silent'); };
+    const onPageHide = () => commit('silent');
+    document.addEventListener('visibilitychange', onHidden);
+    window.addEventListener('pagehide', onPageHide);
+    const finish = () => {
+      closed = true;
+      document.removeEventListener('visibilitychange', onHidden);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+
+    openSheet(`${sheetHead(c0 ? '連絡先を編集' : '連絡先を追加', `<button type="button" class="btn primary head-save" id="ctSaveTop">保存</button>`)}
+      <p class="hint" style="margin-top:0">入力内容は閉じたときにも自動で保存されます。</p>
+      <form id="ctForm" autocomplete="off" novalidate>
         <label class="field"><span>氏名</span><input name="name" value="${esc(c.name)}" autocomplete="name"></label>
         <label class="field"><span>会社名</span><input name="company" value="${esc(c.company)}" list="companyList"><datalist id="companyList">${booths.map(b => `<option value="${esc(b.name)}">`).join('')}</datalist></label>
+        <label class="field"><span>関連ブース</span><select name="booth"><option value="">なし（会社名から自動で設定）</option>${booths.map(b => `<option value="${b.code}" ${b.code === c.booth ? 'selected' : ''}>${b.code} ${esc(b.name)}</option>`).join('')}</select></label>
+        <div id="ctBoothBox"></div>
         <label class="field"><span>部署・役職</span><input name="title" value="${esc(c.title)}"></label>
-        <label class="field"><span>メールアドレス</span><input type="email" name="email" value="${esc(c.email)}" inputmode="email"></label>
+        <label class="field"><span>X・SNS</span><input name="sns" value="${esc(c.sns)}" placeholder="@アカウント名 またはURL" inputmode="url" autocapitalize="off"></label>
+        <label class="field"><span>メールアドレス</span><input type="email" name="email" value="${esc(c.email)}" inputmode="email" autocapitalize="off"></label>
         <label class="field"><span>電話番号</span><input type="tel" name="tel" value="${esc(c.tel)}" inputmode="tel"></label>
-        <label class="field"><span>関連ブース</span><select name="booth"><option value="">なし</option>${booths.map(b => `<option value="${b.code}" ${b.code === c.booth ? 'selected' : ''}>${b.code} ${esc(b.name)}</option>`).join('')}</select></label>
-        <label class="field"><span>メモ</span><textarea name="memo" placeholder="話した内容、フォローアップ予定など">${esc(c.memo)}</textarea></label>
-        <p class="hint" id="ctErr" role="alert"></p>
+        <label class="field"><span>メモ</span><textarea name="memo" placeholder="話した内容、Xで見た情報、当日聞きたいことなど">${esc(c.memo)}</textarea></label>
+        <p class="hint" id="ctErr" role="alert" style="color:var(--red-800)"></p>
         <div class="btn-row">
           ${c0 ? `<button type="button" class="btn danger" id="ctDel">${icon('delete')}削除</button>` : ''}
           <button type="submit" class="btn primary">保存</button>
         </div>
       </form>`, el => {
-      const f = $('#ctForm', el);
+      f = $('#ctForm', el);
       const fe = f.elements;
+      const drawBoothLink = () => {
+        const b = boothsByCode.get(fe.booth.value);
+        $('#ctBoothBox', el).innerHTML = b
+          ? `<button type="button" class="btn block" id="ctGoBooth" style="margin:-8px 0 16px">${icon('place')}${b.code} のブースを見る</button>` : '';
+        if (b) $('#ctGoBooth', el).onclick = () => { if (commit('manual')) { finish(); openBooth(b.code); } };
+      };
       fe.company.addEventListener('change', () => {
         if (fe.booth.value) return;
-        const b = booths.find(b => b.name === fe.company.value);
-        if (b) fe.booth.value = b.code;
+        const b = guessBooth(fe.company.value);
+        if (b) { fe.booth.value = b.code; drawBoothLink(); }
       });
-      f.onsubmit = e => {
-        e.preventDefault();
-        const v = Object.fromEntries(new FormData(f));
-        for (const k in v) v[k] = typeof v[k] === 'string' ? v[k].trim() : v[k];
-        if (!v.name && !v.company) { $('#ctErr', el).textContent = '氏名か会社名のどちらかを入力してください。'; return; }
-        if (c0) Object.assign(c0, v, { updatedAt: now() });
-        else state.contacts.push({ id: 'p-' + uid(), ...v, createdAt: now(), updatedAt: now() });
-        save(); closeSheet(); snack('連絡先を保存しました'); render();
+      fe.booth.addEventListener('change', drawBoothLink);
+      drawBoothLink();
+      const submit = e => {
+        if (e) e.preventDefault();
+        if (commit('manual')) { finish(); closeSheet(); render(); }
       };
+      f.onsubmit = submit;
+      $('#ctSaveTop', el).onclick = () => submit();
       if (c0) $('#ctDel', el).onclick = async () => {
-        if (await confirmSheet('連絡先を削除', `「${esc(c0.name || c0.company)}」を削除しますか？`, '削除', true)) {
-          state.contacts = state.contacts.filter(x => x.id !== c0.id); save(); snack('削除しました'); render();
+        commit('silent'); finish(); // 確認シートに切り替わる前に、編集中の内容を残しておく
+        if (await confirmSheet('連絡先を削除', `「${esc(contactLabel(c0))}」を削除しますか？`, '削除', true)) {
+          state.contacts = state.contacts.filter(x => x.id !== c0.id); save(); snack('削除しました');
         }
+        render();
       };
-    });
+    }, () => { commit('auto'); finish(); render(); });
   }
 
   /* =========================================================
