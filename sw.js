@@ -1,5 +1,6 @@
 /* CD26 観覧アプリ Service Worker（オフライン対応・通知タップ処理） */
 const CACHE = 'cd26-v3';
+const NAV_TIMEOUT_MS = 3000; // この時間内にネットから返ってこなければ保存済みの版を表示
 const ASSETS = [
   './',
   'index.html',
@@ -36,27 +37,38 @@ self.addEventListener('fetch', e => {
   if (!sameOrigin && !isFont) return;
 
   if (req.mode === 'navigate') {
-    // ページ本体はネットワーク優先（更新を早く反映）、オフライン時はキャッシュ
+    // ページ本体はネットワーク優先（更新を早く反映）。
+    // ただし会場など電波が弱いときに待たされないよう、一定時間で保存済みの版に切り替える
+    const net = fetch(req).then(res => {
+      if (res.ok) {
+        const copy = res.clone();
+        return caches.open(CACHE).then(c => c.put('index.html', copy)).then(() => res);
+      }
+      return res;
+    });
+    e.waitUntil(net.catch(() => {})); // 切り替え後も裏で取得を続け、次回のためにキャッシュを更新
     e.respondWith(
-      fetch(req)
-        .then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put('index.html', copy)); return res; })
-        .catch(() => caches.match('index.html'))
+      caches.match('index.html').then(cached => {
+        if (!cached) return net; // まだ保存していなければ待つしかない
+        const timeout = new Promise(resolve => setTimeout(() => resolve(cached), NAV_TIMEOUT_MS));
+        // 通信失敗やサーバーエラーのときも保存済みの版を出す
+        return Promise.race([net.then(res => (res.ok ? res : cached), () => cached), timeout]);
+      })
     );
     return;
   }
 
   // それ以外はキャッシュ優先＋裏で更新
+  const net = fetch(req).then(res => {
+    if (res && (res.ok || res.type === 'opaque')) {
+      const copy = res.clone();
+      return caches.open(CACHE).then(c => c.put(req, copy)).then(() => res);
+    }
+    return res;
+  });
+  e.waitUntil(net.catch(() => {}));
   e.respondWith(
-    caches.match(req).then(cached => {
-      const net = fetch(req).then(res => {
-        if (res && (res.ok || res.type === 'opaque')) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy));
-        }
-        return res;
-      }).catch(() => cached);
-      return cached || net;
-    })
+    caches.match(req).then(cached => cached || net)
   );
 });
 
